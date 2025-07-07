@@ -11,6 +11,11 @@
 (define-constant err-proposal-already-executed (err u109))
 (define-constant err-invalid-voting-period (err u110))
 
+(define-constant err-invalid-comment-length (err u200))
+(define-constant err-comment-not-found (err u201))
+
+(define-data-var comment-counter uint u0)
+
 (define-data-var proposal-counter uint u0)
 (define-data-var min-stake-required uint u1000)
 (define-data-var voting-period uint u1008)
@@ -274,4 +279,83 @@
     execution-delay-blocks: (var-get execution-delay),
     quorum-percentage: (var-get quorum-percentage)
   }
+)
+
+
+(define-map proposal-comments
+  {proposal-id: uint, comment-id: uint}
+  {
+    commenter: principal,
+    content: (string-ascii 280),
+    block-height: uint,
+    timestamp: uint
+  }
+)
+
+(define-map proposal-comment-count uint uint)
+
+(define-public (add-comment (proposal-id uint) (content (string-ascii 280)))
+  (let (
+    (user-stake (get-user-stake tx-sender))
+    (comment-id (+ (var-get comment-counter) u1))
+    (current-block stacks-block-height)
+  )
+    (asserts! (is-some (get-proposal-info proposal-id)) err-proposal-not-found)
+    (asserts! (> user-stake u0) err-no-stake)
+    (asserts! (and (> (len content) u0) (<= (len content) u280)) err-invalid-comment-length)
+    
+    (map-set proposal-comments
+      {proposal-id: proposal-id, comment-id: comment-id}
+      {
+        commenter: tx-sender,
+        content: content,
+        block-height: current-block,
+        timestamp: stacks-block-height
+      }
+    )
+    
+    (let ((current-count (default-to u0 (map-get? proposal-comment-count proposal-id))))
+      (map-set proposal-comment-count proposal-id (+ current-count u1))
+    )
+    
+    (var-set comment-counter comment-id)
+    (ok comment-id)
+  )
+)
+
+(define-read-only (get-comment (proposal-id uint) (comment-id uint))
+  (map-get? proposal-comments {proposal-id: proposal-id, comment-id: comment-id})
+)
+
+(define-read-only (get-proposal-comment-count (proposal-id uint))
+  (default-to u0 (map-get? proposal-comment-count proposal-id))
+)
+
+(define-read-only (get-total-comments)
+  (var-get comment-counter)
+)
+
+(define-read-only (get-recent-comments (proposal-id uint) (limit uint))
+  (let ((total-comments (get-proposal-comment-count proposal-id)))
+    (if (> total-comments u0)
+      (let ((start-id (if (> total-comments limit) (- total-comments limit) u1)))
+        (map get-comment-wrapper 
+          (generate-comment-ids proposal-id start-id total-comments)
+        )
+      )
+      (list)
+    )
+  )
+)
+
+(define-private (get-comment-wrapper (comment-data {proposal-id: uint, comment-id: uint}))
+  (get-comment (get proposal-id comment-data) (get comment-id comment-data))
+)
+
+(define-private (generate-comment-ids (proposal-id uint) (start uint) (end uint))
+  (map make-comment-id-tuple (list u1 u2 u3 u4 u5))
+)
+
+(define-private (make-comment-id-tuple (index uint))
+  {proposal-id: u1, comment-id: index}
 )
