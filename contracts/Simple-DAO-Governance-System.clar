@@ -11,6 +11,15 @@
 (define-constant err-proposal-already-executed (err u109))
 (define-constant err-invalid-voting-period (err u110))
 
+(define-constant err-invalid-delegate (err u300))
+(define-constant err-self-delegation (err u301))
+(define-constant err-delegation-not-found (err u302))
+(define-constant err-delegate-unauthorized (err u303))
+
+(define-map user-delegates principal principal)
+(define-map delegate-power principal uint)
+(define-map delegator-list principal (list 50 principal))
+
 (define-constant err-invalid-comment-length (err u200))
 (define-constant err-comment-not-found (err u201))
 
@@ -358,4 +367,82 @@
 
 (define-private (make-comment-id-tuple (index uint))
   {proposal-id: u1, comment-id: index}
+)
+
+
+(define-read-only (get-delegate (delegator principal))
+  (map-get? user-delegates delegator)
+)
+
+(define-read-only (get-voting-power (user principal))
+  (+ (get-user-stake user) (default-to u0 (map-get? delegate-power user)))
+)
+
+(define-read-only (get-delegators (delegate principal))
+  (default-to (list) (map-get? delegator-list delegate))
+)
+
+(define-public (delegate-to (delegate principal))
+  (let ((current-delegate (get-delegate tx-sender))
+        (delegator-stake (get-user-stake tx-sender)))
+    (asserts! (not (is-eq tx-sender delegate)) err-self-delegation)
+    (asserts! (> delegator-stake u0) err-no-stake)
+    
+    (match current-delegate
+      old-delegate (begin
+        (map-set delegate-power old-delegate 
+          (- (get-voting-power old-delegate) delegator-stake))
+        (map-set delegator-list old-delegate 
+          (filter-delegator (get-delegators old-delegate) tx-sender))
+      )
+      true
+    )
+    
+    (map-set user-delegates tx-sender delegate)
+    (map-set delegate-power delegate (+ (get-voting-power delegate) delegator-stake))
+    (map-set delegator-list delegate 
+      (unwrap! (as-max-len? (append (get-delegators delegate) tx-sender) u50) 
+        err-invalid-delegate))
+    (ok true)
+  )
+)
+
+(define-public (revoke-delegation)
+  (let ((current-delegate (unwrap! (get-delegate tx-sender) err-delegation-not-found))
+        (delegator-stake (get-user-stake tx-sender)))
+    (map-delete user-delegates tx-sender)
+    (map-set delegate-power current-delegate 
+      (- (get-voting-power current-delegate) delegator-stake))
+    (map-set delegator-list current-delegate 
+      (filter-delegator (get-delegators current-delegate) tx-sender))
+    (ok true)
+  )
+)
+
+(define-public (delegate-vote (proposal-id uint) (vote-for bool))
+  (let ((voting-power (get-voting-power tx-sender))
+        (proposal-data (unwrap! (get-proposal-info proposal-id) err-proposal-not-found)))
+    (asserts! (> voting-power u0) err-no-stake)
+    (asserts! (is-proposal-active proposal-id) err-proposal-not-active)
+    (asserts! (is-none (get-user-vote proposal-id tx-sender)) err-already-voted)
+    
+    (map-set user-votes 
+      {proposal-id: proposal-id, voter: tx-sender} 
+      {vote: vote-for, amount: voting-power})
+    
+    (if vote-for
+      (map-set proposals proposal-id 
+        (merge proposal-data {votes-for: (+ (get votes-for proposal-data) voting-power)}))
+      (map-set proposals proposal-id 
+        (merge proposal-data {votes-against: (+ (get votes-against proposal-data) voting-power)})))
+    (ok true)
+  )
+)
+
+(define-private (filter-delegator (delegators (list 50 principal)) (to-remove principal))
+  (filter is-not-target delegators)
+)
+
+(define-private (is-not-target (delegator principal))
+  (not (is-eq delegator tx-sender))
 )
