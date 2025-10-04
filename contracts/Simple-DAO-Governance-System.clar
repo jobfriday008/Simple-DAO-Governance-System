@@ -11,6 +11,15 @@
 (define-constant err-proposal-already-executed (err u109))
 (define-constant err-invalid-voting-period (err u110))
 
+(define-constant err-invalid-category (err u111))
+(define-constant err-invalid-priority (err u112))
+
+(define-data-var treasury-count uint u0)
+(define-data-var technical-count uint u0)
+(define-data-var governance-count uint u0)
+(define-data-var community-count uint u0)
+
+
 (define-constant err-invalid-delegate (err u300))
 (define-constant err-self-delegation (err u301))
 (define-constant err-delegation-not-found (err u302))
@@ -445,4 +454,71 @@
 
 (define-private (is-not-target (delegator principal))
   (not (is-eq delegator tx-sender))
+)
+
+(define-map proposal-metadata
+  uint
+  {
+    category: (string-ascii 20),
+    priority: (string-ascii 10)
+  }
+)
+
+(define-map category-proposals
+  (string-ascii 20)
+  (list 100 uint)
+)
+
+(define-private (is-valid-category (category (string-ascii 20)))
+  (or (is-eq category "treasury")
+      (or (is-eq category "technical")
+          (or (is-eq category "governance")
+              (is-eq category "community"))))
+)
+
+(define-private (is-valid-priority (priority (string-ascii 10)))
+  (or (is-eq priority "critical")
+      (or (is-eq priority "high")
+          (or (is-eq priority "medium")
+              (is-eq priority "low"))))
+)
+
+(define-private (increment-category-count (category (string-ascii 20)))
+  (if (is-eq category "treasury")
+    (var-set treasury-count (+ (var-get treasury-count) u1))
+    (if (is-eq category "technical")
+      (var-set technical-count (+ (var-get technical-count) u1))
+      (if (is-eq category "governance")
+        (var-set governance-count (+ (var-get governance-count) u1))
+        (var-set community-count (+ (var-get community-count) u1)))))
+)
+
+(define-public (set-proposal-category (proposal-id uint) (category (string-ascii 20)) (priority (string-ascii 10)))
+  (let ((proposal-data (unwrap! (get-proposal-info proposal-id) err-proposal-not-found))
+        (existing-proposals (default-to (list) (map-get? category-proposals category))))
+    (asserts! (is-eq tx-sender (get proposer proposal-data)) err-owner-only)
+    (asserts! (is-valid-category category) err-invalid-category)
+    (asserts! (is-valid-priority priority) err-invalid-priority)
+    (map-set proposal-metadata proposal-id {category: category, priority: priority})
+    (map-set category-proposals category (unwrap! (as-max-len? (append existing-proposals proposal-id) u100) err-invalid-category))
+    (increment-category-count category)
+    (ok true)
+  )
+)
+
+(define-read-only (get-proposal-category (proposal-id uint))
+  (map-get? proposal-metadata proposal-id)
+)
+
+(define-read-only (get-proposals-by-category (category (string-ascii 20)))
+  (default-to (list) (map-get? category-proposals category))
+)
+
+(define-read-only (get-category-stats)
+  {
+    treasury: (var-get treasury-count),
+    technical: (var-get technical-count),
+    governance: (var-get governance-count),
+    community: (var-get community-count)
+  }
 )
