@@ -1,0 +1,33 @@
+[project]
+name = 'Simple-DAO-Governance-System'
+description = ''
+authors = []
+telemetry = true
+cache_dir = '.\.cache'
+requirements = []
+[contracts.Simple-DAO-Governance-System]
+path = 'contracts/Simple-DAO-Governance-System.clar'
+clarity_version = 3
+epoch = 3.1
+
+[contracts.proposal-ratings]
+path = 'contracts/proposal-ratings.clar'
+clarity_version = 3
+epoch = 3.1
+
+[contracts.proposal-cleanup]
+path = 'contracts/proposal-cleanup.clar'
+clarity_version = 3
+epoch = 3.1
+[repl.analysis]
+passes = ['check_checker']
+
+[repl.analysis.check_checker]
+strict = false
+trusted_sender = false
+trusted_caller = false
+callee_filter = false
+
+[repl.remote_data]
+enabled = false
+api_url = 'https://api.hiro.so'
